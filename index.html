@@ -641,6 +641,7 @@
             align-items: center;
             justify-content: center;
             gap: 0.75rem;
+            width: 100%;
         }
 
         .auth-google-btn:hover {
@@ -1264,6 +1265,7 @@
             margin-bottom: 1rem;
             display: flex;
             align-items: center;
+            justify-content: center;
             gap: 0.5rem;
         }
 
@@ -1603,13 +1605,13 @@
                 <div class="pricing-options">
                     <div class="pricing-card" onclick="selectPlan('monthly')">
                         <div class="plan-name">Monthly</div>
-                        <div class="plan-price">$6.99</div>
+                        <div class="plan-price">$9.99</div>
                         <div class="plan-period">per month</div>
                     </div>
                     <div class="pricing-card featured" onclick="selectPlan('yearly')">
-                        <div class="plan-badge">SAVE 40%</div>
+                        <div class="plan-badge">SAVE 42%</div>
                         <div class="plan-name">Yearly</div>
-                        <div class="plan-price">$49.99</div>
+                        <div class="plan-price">$69.99</div>
                         <div class="plan-period">per year</div>
                     </div>
                 </div>
@@ -1623,6 +1625,7 @@
 
         <footer>
             <p>A new free realm unlocks daily at midnight • <a href="#" onclick="showUpgrade()">Go Premium</a> for all realms</p>
+            <p style="margin-top: 1rem; opacity: 0.6;">A product of AVA Applications, LLC</p>
         </footer>
     </div>
 
@@ -2043,7 +2046,11 @@
                 seeds: [
                     "You're a wedding planner whose biggest client is your ex—and they're marrying someone who looks exactly like you did ten years ago.",
                     "The stranger who saved your life in a foreign country just walked into your office as your new boss. Neither of you mention that night.",
-                    "You've been anonymously exchanging love letters through a vintage bookshop's recommendation wall. Today you see your best friend writing one."
+                    "You've been anonymously exchanging love letters through a vintage bookshop's recommendation wall. Today you see your best friend writing one.",
+                    "You're a ghost who's haunted the same house for a century. The new owner can see you—and they're the reincarnation of the love you died for.",
+                    "Your grandmother's dying wish: deliver a letter to a Paris address. The man who answers looks exactly like your grandfather. He says he's been waiting 60 years for this.",
+                    "You matched with someone on a dating app. Halfway through the perfect first date, you realize they're the anonymous rival who's been trying to destroy your business.",
+                    "A mix-up at the hospital: you've been texting the wrong number for months. The real recipient of those late-night confessions just walked into your coffee shop."
                 ]
             },
             historical: {
@@ -2052,8 +2059,12 @@
                 desc: 'Adventures through time',
                 seeds: [
                     "You're a servant in Versailles who just witnessed something that could topple the monarchy. The Queen knows you saw.",
-                    "As a mapmaker on Columbus's expedition, you've discovered the captain is following a map that shouldn't exist.",
-                    "You're a gladiator who just refused to kill in the arena. The Emperor is amused. He has a private proposition."
+                    "As a mapmaker on Columbus's expedition, you've discovered the captain is following a map that shouldn't exist—dated 200 years in the future.",
+                    "You're a gladiator who just refused to kill in the arena. The Emperor is amused. He has a private proposition that could change Rome forever.",
+                    "You're a code-breaker at Bletchley Park who just decrypted a message about your own family. The mission to save England and the mission to save them cannot both succeed.",
+                    "As Leonardo da Vinci's apprentice, you've discovered your master's secret workshop. The machines inside shouldn't be possible for another 400 years.",
+                    "You're a samurai ordered to kill a child who will supposedly grow up to destroy your clan. The child just saved your life.",
+                    "You're Cleopatra's food taster. You just survived a poison meant for the Queen. Now she trusts only you to find the assassin—who you know is her beloved brother."
                 ]
             }
         };
@@ -2258,17 +2269,77 @@
 
         let selectedPlan = 'yearly'; // Default to yearly
 
+        // Stripe Price IDs - your live price IDs
+        const STRIPE_PRICES = {
+            monthly: 'price_1SYBpeLg7JCvSxVSWkS7oTQ8',
+            yearly: 'price_1SYBxFLg7JCvSxVSbouHWdPP'
+        };
+
         function selectPlan(plan) {
             selectedPlan = plan;
-            document.querySelectorAll('.pricing-card').forEach(card => {
+            document.querySelectorAll('.pricing-card').forEach(function(card) {
                 card.classList.remove('selected');
             });
             event.currentTarget.classList.add('selected');
         }
 
-        function handleSubscribe() {
-            // This will be replaced with Stripe integration
-            alert(`You selected the ${selectedPlan} plan!\n\nStripe payment integration coming soon.\n\nFor now, contact us to get premium access.`);
+        async function handleSubscribe() {
+            if (!currentUser || !currentUser.id || currentUser.id === 'demo') {
+                alert('Please create an account first to subscribe.');
+                closeUpgrade();
+                return;
+            }
+
+            var subscribeBtn = document.querySelector('.subscribe-btn');
+            subscribeBtn.disabled = true;
+            subscribeBtn.textContent = 'Redirecting to checkout...';
+
+            try {
+                var response = await fetch('/api/checkout', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        priceId: STRIPE_PRICES[selectedPlan],
+                        userId: currentUser.id,
+                        userEmail: currentUser.email,
+                        successUrl: window.location.origin + '?success=true',
+                        cancelUrl: window.location.origin + '?canceled=true'
+                    })
+                });
+
+                var data = await response.json();
+
+                if (data.url) {
+                    window.location.href = data.url;
+                } else {
+                    throw new Error(data.error || 'Failed to create checkout');
+                }
+            } catch (error) {
+                console.error('Checkout error:', error);
+                alert('Something went wrong. Please try again.');
+                subscribeBtn.disabled = false;
+                subscribeBtn.textContent = 'Start Premium';
+            }
+        }
+
+        function checkPaymentStatus() {
+            var urlParams = new URLSearchParams(window.location.search);
+            if (urlParams.get('success') === 'true') {
+                setTimeout(function() {
+                    if (currentUser && currentUser.id !== 'demo') {
+                        loadUserData().then(function() {
+                            renderGenreGrid();
+                            alert('🎉 Welcome to Premium! You now have unlimited access to all realms.');
+                        });
+                    }
+                }, 1000);
+                window.history.replaceState({}, document.title, window.location.pathname);
+            }
+            if (urlParams.get('canceled') === 'true') {
+                window.history.replaceState({}, document.title, window.location.pathname);
+            }
         }
 
         // ==================== STORY LOGIC ====================
@@ -2345,30 +2416,104 @@
             const seed = getDailySeed(genre, state.todayKey);
             const isEnding = state.currentWeave >= TOTAL_WEAVES - 1;
 
-            // Build prompt
-            let systemPrompt = `You are a master storyteller creating an immersive ${realmData[genre].name.toLowerCase()} story.
+            // Randomization elements to ensure no two stories feel the same
+            const toneVariants = [
+                "dark and atmospheric with moments of levity",
+                "propulsive and urgent with emotional depth",
+                "lyrical and sensory with sharp dialogue",
+                "gritty and grounded with flashes of wonder",
+                "intimate and character-driven with rising tension"
+            ];
+            const currentTone = toneVariants[Math.floor(Math.random() * toneVariants.length)];
+
+            const narrativeHooks = [
+                "Open with a visceral sensory detail that sets mood",
+                "Start with sharp dialogue that reveals character",
+                "Begin with the protagonist in motion — running, fighting, fleeing",
+                "Open on a quiet moment shattered by disruption",
+                "Start with an internal thought that hooks curiosity"
+            ];
+            const currentHook = narrativeHooks[Math.floor(Math.random() * narrativeHooks.length)];
+
+            const emotionalBeats = [
+                "Include a moment of unexpected vulnerability",
+                "Add crackling tension between characters with opposing goals",
+                "Include sensory details that trigger memory or longing",
+                "Add a flash of dark humor amid tension",
+                "Include a moment where power dynamics shift unexpectedly"
+            ];
+            const currentBeat = emotionalBeats[Math.floor(Math.random() * emotionalBeats.length)];
+
+            // Genre-specific style guidance inspired by bestselling fiction
+            const genreStyles = {
+                fantasy: "Channel the romantasy energy of Sarah J. Maas — morally gray antiheroes, slow-burn tensions, found family bonds, protagonists discovering hidden power. Include courts and politics dripping with danger. Magic should be sensual and costly. Banter should crackle. Loyalties should be tested. Every character wants something desperately.",
+                mystery: "Write with the psychological depth of Gillian Flynn and the puzzle-box plotting of Agatha Christie. Everyone lies. The detective has their own demons. Clues hide in plain sight. The truth should recontextualize everything. Include that sickening moment when the reader realizes they've trusted the wrong person.",
+                scifi: "Blend the scientific rigor of Andy Weir with the humanity of Becky Chambers. Future tech should feel tactile and real. Explore found family in the void. Question what makes us human when everything can be replicated. Include moments of wonder amid existential stakes. The universe is vast and indifferent, but connection matters.",
+                horror: "Channel the creeping dread of Shirley Jackson and the visceral terror of Stephen King. Horror lives in the familiar made wrong. Use isolation, paranoia, and the betrayal of safe spaces. The monster might be human. Include that moment when the protagonist realizes the rules have changed. What we don't see is worse than what we do.",
+                romance: "Write with the emotional intensity of Colleen Hoover and the witty banter of Emily Henry. Tension should be unbearable — touches that linger, words left unsaid, almost-kisses interrupted. Include the moment walls come down. Vulnerability is strength. The obstacle should feel insurmountable. Make readers ache for the characters to just TALK to each other.",
+                historical: "Blend the epic sweep of Ken Follett with the intimate detail of Hilary Mantel. The past should feel foreign yet familiar. Include period-specific sensory details — the smell of tallow, the weight of wool, the taste of ale. Characters are trapped by their era's rules. History's weight presses on every choice. The personal is political."
+            };
+
+            // Build prompt with randomization
+            let systemPrompt = `You are an elite novelist writing a gripping ${realmData[genre].name.toLowerCase()} story that readers cannot put down.
+
+THIS STORY'S UNIQUE FLAVOR:
+- Tone: ${currentTone}
+- ${currentHook}
+- ${currentBeat}
+- Session ID: ${Date.now()}-${Math.random().toString(36).substr(2, 9)} (use this to ensure uniqueness)
+
+GENRE MASTERY:
+${genreStyles[genre]}
+
+YOUR STORYTELLING ARSENAL (vary these — never use the same techniques twice in a row):
+- Slow-burn tension that makes readers forget to breathe
+- Morally complex characters — no pure heroes or villains
+- Found family dynamics and loyalty tested to breaking point  
+- Protagonists with hidden depths discovering their true power
+- Banter that crackles with subtext and unspoken feelings
+- Sensory details that make scenes tactile and immersive
+- Emotional reveals that recontextualize what came before
+- Quiet moments of connection amid chaos
+- Power dynamics that shift unexpectedly
+- Internal conflict as compelling as external threat
+
+ANTI-REPETITION RULES:
+- NEVER start two segments the same way
+- Vary sentence length dramatically — staccato action, flowing emotion
+- Each segment must introduce something NEW — a detail, character facet, or complication
+- Subvert expectations at least once per segment
+- If you wrote action last segment, include a character moment this time (and vice versa)
 
 CRITICAL RULES:
-1. Write 2-3 paragraphs of vivid, engaging narrative (150-200 words)
-2. Write in second person ("You see...", "You feel...")
+1. Write 2-3 paragraphs of vivid, cinematic narrative (150-200 words)
+2. Write in second person present tense ("You see...", "Your heart pounds...")
 3. Never break character or mention being an AI
-4. Create atmosphere and tension appropriate to the genre`;
+4. Make the reader desperate to know what happens next
+5. Include at least one unexpected twist, detail, or complication per segment`;
 
             if (isEnding) {
                 systemPrompt += `
-5. This is the FINAL segment. Bring the story to a satisfying, conclusive ending.
-6. Resolve the main tension based on the player's choices throughout.
-7. End with a memorable final line that gives closure.
-8. Do NOT provide choices - this is the ending.`;
+
+THIS IS THE FINALE — MAKE IT UNFORGETTABLE:
+6. Deliver catharsis worthy of the journey — release tension in a way that satisfies
+7. Reference key choices — show how their decisions shaped this specific ending
+8. Include a callback to an earlier detail for emotional resonance
+9. The final line should linger — haunting, triumphant, bittersweet, or transformative
+10. Make them feel something real — then immediately want to replay for different endings
+11. Do NOT provide choices — this is the ending`;
             } else {
                 systemPrompt += `
-5. End at a decision point
-6. After the narrative, provide EXACTLY 3 choices in this format:
-   [CHOICE 1] Description of first option
-   [CHOICE 2] Description of second option  
-   [CHOICE 3] Description of third option
-7. Make choices meaningfully different with real consequences
-8. Current progress: Weave ${state.currentWeave + 1} of ${TOTAL_WEAVES}`;
+
+CHOICES THAT TORMENT:
+6. End at a decision point that creates genuine agony — no obvious right answer
+7. After the narrative, provide EXACTLY 3 choices in this format:
+   [CHOICE 1] The bold/risky path — appeal to courage, hint at danger
+   [CHOICE 2] The protective/emotional path — appeal to loyalty, hint at sacrifice  
+   [CHOICE 3] The cunning/unexpected path — appeal to cleverness, hint at unknown consequences
+8. Each choice should feel like it reveals the reader's soul
+9. Make consequences feel REAL and VISIBLE — not abstract
+10. Current progress: Weave ${state.currentWeave + 1} of ${TOTAL_WEAVES} — ${state.currentWeave < 3 ? 'establish world, stakes, and emotional hooks' : state.currentWeave < 6 ? 'complicate everything, test loyalties, raise stakes' : 'race toward climax, make every choice feel final'}`;
             }
 
             let messages = [];
@@ -2376,22 +2521,22 @@ CRITICAL RULES:
             if (state.storyHistory.length === 0) {
                 messages.push({
                     role: 'user',
-                    content: `${systemPrompt}\n\nToday's story seed:\n"${seed}"\n\nBegin this adventure. Establish the protagonist (the reader) in this scenario and present the first decision point.`
+                    content: `${systemPrompt}\n\nToday's story seed:\n"${seed}"\n\nBegin with a HOOK in the first line — ${currentHook.toLowerCase()}. Establish what the protagonist wants and what stands in their way. Make readers unable to stop reading.`
                 });
             } else {
                 let context = `${systemPrompt}\n\nStory seed: "${seed}"\n\nStory so far:\n`;
-                state.storyHistory.forEach((segment, i) => {
-                    context += `\n--- Weave ${i + 1} ---\n${segment.text}\n`;
+                state.storyHistory.forEach(function(segment, i) {
+                    context += '\n--- Weave ' + (i + 1) + ' ---\n' + segment.text + '\n';
                     if (segment.choice) {
-                        context += `Player chose: ${segment.choice}\n`;
+                        context += 'Player chose: ' + segment.choice + '\n';
                     }
                 });
-                context += `\nPlayer chose: ${playerChoice}\n\n`;
+                context += '\nPlayer chose: ' + playerChoice + '\n\n';
                 
                 if (isEnding) {
-                    context += `Now write the FINAL conclusion to this story. Make it meaningful and satisfying based on all the choices made.`;
+                    context += 'Write the FINAL conclusion. This is your chance to deliver an ending worthy of the journey. Bring threads together. Make their choices matter. Leave them breathless, then immediately craving another playthrough.';
                 } else {
-                    context += `Continue the story based on this choice. Write the next scene and present new choices.`;
+                    context += 'Continue with fresh energy — DO NOT repeat phrases, openings, or structures from previous segments. Honor their choice but twist the knife. Deepen relationships. Raise stakes. Make the next choice even more impossible.';
                 }
 
                 messages.push({ role: 'user', content: context });
@@ -2668,6 +2813,7 @@ CRITICAL RULES:
         function init() {
             state.todayKey = getTodayKey();
             initStarfield();
+            checkPaymentStatus();
             initSupabase();
         }
 

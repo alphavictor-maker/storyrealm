@@ -9,6 +9,7 @@ An engaging interactive fiction platform where new story realms refresh daily. U
 - **Premium ($6.99/mo or $49.99/yr)**: Unlimited stories in all realms + save to library
 - **8 Weaves Per Story**: Complete narrative arc with real ending
 - **Server-side tracking**: No cheating by clearing browser data
+- **Stripe payments**: Secure subscription billing
 
 ## Quick Deploy Guide
 
@@ -34,23 +35,21 @@ CREATE TABLE user_data (
   chosen_realm TEXT,
   completed_today BOOLEAN DEFAULT FALSE,
   saved_stories JSONB DEFAULT '[]'::jsonb,
+  stripe_customer_id TEXT,
+  stripe_subscription_id TEXT,
   created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
   updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
   UNIQUE(user_id)
 );
 
--- Enable RLS
 ALTER TABLE user_data ENABLE ROW LEVEL SECURITY;
 
--- Policy: Users can only see their own data
 CREATE POLICY "Users can view own data" ON user_data
   FOR SELECT USING (auth.uid() = user_id);
 
--- Policy: Users can update their own data  
 CREATE POLICY "Users can update own data" ON user_data
   FOR UPDATE USING (auth.uid() = user_id);
 
--- Policy: Users can insert their own data
 CREATE POLICY "Users can insert own data" ON user_data
   FOR INSERT WITH CHECK (auth.uid() = user_id);
 ```
@@ -58,16 +57,42 @@ CREATE POLICY "Users can insert own data" ON user_data
 6. (Optional) Enable Google Sign-In:
    - Go to **Authentication → Providers → Google**
    - Enable it and add your Google OAuth credentials
-   - Get credentials at https://console.developers.google.com
 
-### Step 2: Get Your Anthropic API Key
+### Step 2: Set Up Stripe (Payments)
+
+1. Go to https://stripe.com and create an account
+2. Once in dashboard, go to **Developers → API Keys**
+3. Copy your **Secret key** (starts with `sk_live_` or `sk_test_`)
+
+4. Create your subscription products:
+   - Go to **Products → Add Product**
+   - Create "StoryRealm Monthly":
+     - Price: $6.99/month, recurring
+     - Copy the **Price ID** (starts with `price_`)
+   - Create "StoryRealm Yearly":
+     - Price: $49.99/year, recurring
+     - Copy the **Price ID**
+
+5. Set up Webhook:
+   - Go to **Developers → Webhooks**
+   - Click **Add endpoint**
+   - URL: `https://mystoryrealm.com/api/webhook`
+   - Select events: `checkout.session.completed`, `customer.subscription.deleted`, `customer.subscription.updated`
+   - Copy the **Webhook signing secret** (starts with `whsec_`)
+
+6. Update the price IDs in `index.html`:
+   - Find `STRIPE_PRICES` near line 2270
+   - Replace `price_MONTHLY_ID_HERE` with your monthly price ID
+   - Replace `price_YEARLY_ID_HERE` with your yearly price ID
+
+### Step 3: Get Your Anthropic API Key
 
 1. Go to https://console.anthropic.com/
 2. Sign up or log in
 3. Create a new API key
 4. Copy it somewhere safe
 
-### Step 3: Update the Code
+### Step 4: Update the Code
 
 Open `index.html` and find these lines near the top of the `<script>` section:
 
@@ -78,45 +103,48 @@ const SUPABASE_ANON_KEY = 'YOUR_SUPABASE_ANON_KEY';
 
 Replace with your actual Supabase values from Step 1.
 
-### Step 4: Create a GitHub Account
+Also update the Stripe price IDs:
+```javascript
+const STRIPE_PRICES = {
+    monthly: 'price_YOUR_MONTHLY_PRICE_ID',
+    yearly: 'price_YOUR_YEARLY_PRICE_ID'
+};
+```
 
-If you don't have one:
-1. Go to https://github.com/signup
-2. Follow the signup process
+### Step 5: Deploy to Vercel
 
-### Step 5: Upload to GitHub
-
-1. Go to https://github.com/new
-2. Name your repository `storyrealm`
-3. Click "Create repository"
-4. Click "uploading an existing file"
-5. Drag all files from this folder
-6. Click "Commit changes"
-
-### Step 6: Deploy on Vercel
-
-1. Go to https://vercel.com/signup
-2. Click "Continue with GitHub"
-3. Click "Add New..." → "Project"
-4. Import your `storyrealm` repository
-5. Click "Deploy"
-
-### Step 7: Add Environment Variables
-
-In Vercel, go to your project:
-1. Click **Settings → Environment Variables**
-2. Add these variables:
+1. Upload all files to GitHub
+2. Go to https://vercel.com and import your repo
+3. Add these Environment Variables:
    - `ANTHROPIC_API_KEY` = your Anthropic key
    - `SUPABASE_URL` = your Supabase project URL
    - `SUPABASE_SERVICE_KEY` = your Supabase service_role key
-3. Click "Save"
-4. Go to **Deployments** and redeploy
+   - `STRIPE_SECRET_KEY` = your Stripe secret key
+   - `STRIPE_WEBHOOK_SECRET` = your Stripe webhook signing secret
+4. Deploy!
 
-### Step 8: You're Live!
+### Step 6: Connect Custom Domain
 
-Your app is at: `https://storyrealm-YOUR_USERNAME.vercel.app`
+1. In Vercel, go to Settings → Domains
+2. Add `mystoryrealm.com`
+3. Update DNS at your registrar
 
 ---
+
+## File Structure
+
+```
+storyrealm/
+├── index.html          # Main app with auth
+├── api/
+│   ├── chat.js         # Claude API proxy
+│   ├── user.js         # User data API
+│   ├── checkout.js     # Stripe checkout
+│   └── webhook.js      # Stripe webhooks
+├── vercel.json         # Vercel config
+├── package.json        # Project info
+└── README.md           # This file
+```
 
 ## Pricing
 
@@ -129,25 +157,3 @@ Premium unlocks:
 - All 6 realms
 - Save stories to library
 - Past adventures archive
-
-## Adding Stripe (Coming Soon)
-
-To enable actual payments, you'll need to:
-1. Create a Stripe account
-2. Add webhook endpoints
-3. Update the `handleSubscribe()` function
-
----
-
-## File Structure
-
-```
-storyrealm/
-├── index.html          # Main app with auth
-├── api/
-│   ├── chat.js         # Claude API proxy
-│   └── user.js         # User data API
-├── vercel.json         # Vercel config
-├── package.json        # Project info
-└── README.md           # This file
-```
