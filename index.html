@@ -2138,7 +2138,7 @@
                         // If free user hasn't chosen yet, this becomes their free realm
                         if (!state.isPremium && !hasChosenFreeRealm) {
                             state.chosenFreeRealm = key;
-                            saveState();
+                            saveDemoState();
                         }
                         startStory(key);
                     }
