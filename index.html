@@ -1668,13 +1668,13 @@
                 <div class="pricing-options">
                     <div class="pricing-card" onclick="selectPlan('monthly')">
                         <div class="plan-name">Monthly</div>
-                        <div class="plan-price">$9.99</div>
+                        <div class="plan-price">$7.99</div>
                         <div class="plan-period">per month</div>
                     </div>
                     <div class="pricing-card featured" onclick="selectPlan('yearly')">
-                        <div class="plan-badge">SAVE 42%</div>
+                        <div class="plan-badge">SAVE 32%</div>
                         <div class="plan-name">Yearly</div>
-                        <div class="plan-price">$69.99</div>
+                        <div class="plan-price">$64.99</div>
                         <div class="plan-period">per year</div>
                     </div>
                 </div>
@@ -2764,9 +2764,15 @@ CHOICES THAT TORMENT:
                         <p style="color: var(--text-secondary); font-style: italic;">Connection interrupted. Please try again.</p>
                     </div>
                 `;
+                
+                // Store the last choice for retry
+                window._lastPlayerChoice = playerChoice || null;
                 document.getElementById('choicesContainer').innerHTML = `
-                    <button class="choice-btn" onclick="retryLastAction('${playerChoice || ''}')">Try again</button>
+                    <button class="choice-btn" id="retryBtn">Try again</button>
                 `;
+                document.getElementById('retryBtn').addEventListener('click', function() {
+                    retryLastAction(window._lastPlayerChoice);
+                });
             }
 
             state.isLoading = false;
@@ -2859,9 +2865,9 @@ CHOICES THAT TORMENT:
                 </div>
             `;
 
-            // Show choices
-            let choicesHtml = choices.map(choice => `
-                <button class="choice-btn" onclick="makeChoice('${escapeQuotes(choice)}')">${choice}</button>
+            // Show choices - use data attributes for safer click handling
+            let choicesHtml = choices.map((choice, index) => `
+                <button class="choice-btn" data-choice-index="${index}">${choice}</button>
             `).join('');
 
             choicesHtml += `
@@ -2876,6 +2882,17 @@ CHOICES THAT TORMENT:
             `;
 
             document.getElementById('choicesContainer').innerHTML = choicesHtml;
+            
+            // Attach click handlers via event delegation
+            document.querySelectorAll('.choice-btn[data-choice-index]').forEach(btn => {
+                btn.addEventListener('click', function() {
+                    const index = parseInt(this.getAttribute('data-choice-index'));
+                    if (!isNaN(index) && choices[index]) {
+                        makeChoice(choices[index]);
+                    }
+                });
+            });
+            
             document.getElementById('currentStory').scrollIntoView({ behavior: 'smooth', block: 'start' });
         }
 
