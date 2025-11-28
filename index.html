@@ -1982,11 +1982,9 @@
         }
 
         async function loadUserData() {
-            // Always load from localStorage first as baseline
-            loadDemoState();
-            
-            // If no supabase configured, we're done (demo mode)
+            // If no supabase configured, load from localStorage (demo mode)
             if (!supabase || SUPABASE_URL === 'YOUR_SUPABASE_URL') {
+                loadDemoState();
                 return;
             }
 
@@ -1994,7 +1992,10 @@
                 var sessionResult = await supabase.auth.getSession();
                 var token = sessionResult.data.session ? sessionResult.data.session.access_token : null;
                 
-                if (!token) return;
+                if (!token) {
+                    loadDemoState();
+                    return;
+                }
 
                 var response = await fetch('/api/user', {
                     headers: {
@@ -2004,26 +2005,26 @@
 
                 if (response.ok) {
                     var userData = await response.json();
-                    state.isPremium = userData.is_premium || false;
                     
-                    // Use server data if it exists, otherwise keep local
-                    if (userData.chosen_realm) {
-                        state.chosenFreeRealm = userData.chosen_realm;
-                    }
-                    if (userData.completed_today) {
-                        state.completedToday = userData.completed_today;
-                    }
-                    if (userData.saved_stories && userData.saved_stories.length > 0) {
-                        state.savedStories = userData.saved_stories;
-                    }
+                    // For logged-in users, use SERVER data only (not localStorage)
+                    // This ensures each user has their own state
+                    state.isPremium = userData.is_premium || false;
+                    state.chosenFreeRealm = userData.chosen_realm || null;
+                    state.completedToday = userData.completed_today || false;
+                    state.savedStories = userData.saved_stories || [];
                     
                     if (state.completedToday && state.chosenFreeRealm) {
                         state.completedRealms = [state.chosenFreeRealm];
+                    } else {
+                        state.completedRealms = [];
                     }
                 }
             } catch (error) {
                 console.error('Failed to load user data:', error);
-                // Keep using localStorage data on error
+                // On error, start fresh rather than using potentially wrong localStorage
+                state.chosenFreeRealm = null;
+                state.completedToday = false;
+                state.completedRealms = [];
             }
             
             state.todayKey = getTodayKey();
