@@ -1666,12 +1666,12 @@
                 </div>
 
                 <div class="pricing-options">
-                    <div class="pricing-card" onclick="selectPlan('monthly')">
+                    <div class="pricing-card" onclick="selectPlan('monthly', event)">
                         <div class="plan-name">Monthly</div>
                         <div class="plan-price">$7.99</div>
                         <div class="plan-period">per month</div>
                     </div>
-                    <div class="pricing-card featured" onclick="selectPlan('yearly')">
+                    <div class="pricing-card featured" onclick="selectPlan('yearly', event)">
                         <div class="plan-badge">SAVE 32%</div>
                         <div class="plan-name">Yearly</div>
                         <div class="plan-price">$64.99</div>
@@ -1773,7 +1773,6 @@
         let currentUser = null;
         let authMode = 'signup'; // 'signup' or 'login'
 
-        // ==================== STATE ====================
         // ==================== STATE ====================
         let state = {
             currentGenre: null,
@@ -1935,20 +1934,6 @@
 
             btn.disabled = false;
             btn.textContent = authMode === 'signup' ? 'Create Account' : 'Sign In';
-        }
-
-        async function handleGoogleAuth() {
-            try {
-                var result = await supabase.auth.signInWithOAuth({
-                    provider: 'google',
-                    options: {
-                        redirectTo: window.location.origin
-                    }
-                });
-                if (result.error) showAuthError(result.error.message);
-            } catch (error) {
-                showAuthError('Google sign-in failed. Please try again.');
-            }
         }
 
         async function handleLogout() {
@@ -2353,12 +2338,16 @@
             yearly: 'price_1SYBxFLg7JCvSxVSbouHWdPP'
         };
 
-        function selectPlan(plan) {
+        function selectPlan(plan, evt) {
             selectedPlan = plan;
             document.querySelectorAll('.pricing-card').forEach(function(card) {
                 card.classList.remove('selected');
             });
-            event.currentTarget.classList.add('selected');
+            // Use the passed event or fall back to window.event
+            var targetEvent = evt || window.event;
+            if (targetEvent && targetEvent.currentTarget) {
+                targetEvent.currentTarget.classList.add('selected');
+            }
         }
 
         async function handleSubscribe() {
@@ -2425,6 +2414,7 @@
             state.currentGenre = null;
             state.currentWeave = 0;
             state.storyHistory = [];
+            state.isLoading = false;
             document.getElementById('storyHistory').innerHTML = '';
             document.getElementById('currentStory').innerHTML = '';
             document.getElementById('choicesContainer').innerHTML = '';
@@ -2432,26 +2422,32 @@
             showScreen('genreScreen');
         }
 
-        function replayRealm() {
+        async function replayRealm() {
             if (state.currentGenre) {
-                const genre = state.currentGenre;
                 state.currentWeave = 0;
                 state.storyHistory = [];
+                state.isLoading = false;
                 document.getElementById('storyHistory').innerHTML = '';
+                document.getElementById('currentStory').innerHTML = '';
+                document.getElementById('choicesContainer').innerHTML = '';
+                renderWeaveDots();
                 showScreen('storyScreen');
-                generateStorySegment();
+                await generateStorySegment();
             }
         }
 
-        function replayRealmByKey(key) {
+        async function replayRealmByKey(key) {
             state.currentGenre = key;
             state.currentWeave = 0;
             state.storyHistory = [];
+            state.isLoading = false;
             document.getElementById('storyHistory').innerHTML = '';
+            document.getElementById('currentStory').innerHTML = '';
+            document.getElementById('choicesContainer').innerHTML = '';
             document.getElementById('currentGenreBadge').textContent = realmData[key].name.toUpperCase();
             renderWeaveDots();
             showScreen('storyScreen');
-            generateStorySegment();
+            await generateStorySegment();
         }
 
         async function startStory(genre) {
@@ -2485,8 +2481,13 @@
         }
 
         async function generateStorySegment(playerChoice = null) {
-            if (state.isLoading) return;
+            if (state.isLoading) {
+                console.warn('generateStorySegment blocked - already loading');
+                return;
+            }
             state.isLoading = true;
+            
+            console.log(`[Weave ${state.currentWeave + 1}/${TOTAL_WEAVES}] Generating segment...`, playerChoice ? `Choice: "${playerChoice.substring(0, 30)}..."` : 'Initial');
 
             // Show loading
             document.getElementById('currentStory').innerHTML = `
@@ -2738,9 +2739,20 @@ CHOICES THAT TORMENT:
                 if (!response.ok) throw new Error('API request failed');
 
                 const data = await response.json();
+                
+                // Validate response structure
+                if (!data || !data.content || !data.content[0] || !data.content[0].text) {
+                    throw new Error('Invalid API response structure');
+                }
+                
                 const fullResponse = data.content[0].text;
 
                 const { narrative, choices } = parseStoryResponse(fullResponse);
+                
+                // Validate narrative
+                if (!narrative || narrative.length < 50) {
+                    console.warn('Narrative seems too short:', narrative);
+                }
 
                 // Update history
                 if (playerChoice && state.storyHistory.length > 0) {
@@ -2748,7 +2760,9 @@ CHOICES THAT TORMENT:
                 }
                 state.storyHistory.push({ text: narrative, choice: null });
 
+                // Only increment weave AFTER successful processing
                 state.currentWeave++;
+                console.log(`[Weave ${state.currentWeave}/${TOTAL_WEAVES}] Segment complete`);
                 renderWeaveDots();
 
                 if (isEnding) {
@@ -2758,7 +2772,8 @@ CHOICES THAT TORMENT:
                 }
 
             } catch (error) {
-                console.error('Error:', error);
+                console.error('Error generating story:', error);
+                // DON'T increment weave on error
                 document.getElementById('currentStory').innerHTML = `
                     <div class="story-text">
                         <p>The threads of fate tangle momentarily...</p>
@@ -2780,6 +2795,8 @@ CHOICES THAT TORMENT:
         }
 
         function retryLastAction(playerChoice) {
+            // Reset loading state to allow retry
+            state.isLoading = false;
             state.currentWeave = Math.max(0, state.currentWeave);
             if (playerChoice) {
                 generateStorySegment(playerChoice);
@@ -2800,6 +2817,8 @@ CHOICES THAT TORMENT:
             const format3 = /^CHOICE \d:?\s*(.+)/gm;
             // Format 4: 1. Description or 1) Description
             const format4 = /^[123][\.\)]\s*(.+)/gm;
+            // Format 5: - Choice text (bullet points)
+            const format5 = /^[-•]\s*(.+)/gm;
 
             let match;
 
@@ -2832,6 +2851,18 @@ CHOICES THAT TORMENT:
                     choices.push(match[1].trim());
                 }
             }
+            
+            // If still no choices, try format 5 (bullet points at end)
+            if (choices.length === 0) {
+                // Only match bullet points near the end of response
+                const lastPart = response.slice(-500);
+                while ((match = format5.exec(lastPart)) !== null) {
+                    const choiceText = match[1].trim();
+                    if (choiceText.length > 10 && choiceText.length < 200) {
+                        choices.push(choiceText);
+                    }
+                }
+            }
 
             // Remove choices from narrative
             let narrative = response
@@ -2840,6 +2871,11 @@ CHOICES THAT TORMENT:
                 .replace(/^CHOICE \d:?\s*.+/gm, '')
                 .replace(/^[123][\.\)]\s*.+/gm, '')
                 .trim();
+            
+            // If still no choices and not an ending, log warning
+            if (choices.length === 0) {
+                console.warn('No choices parsed from response. Raw response:', response.slice(-300));
+            }
 
             return { narrative, choices };
         }
@@ -2850,13 +2886,15 @@ CHOICES THAT TORMENT:
                 const historyContainer = document.getElementById('storyHistory');
                 const prevSegment = state.storyHistory[state.storyHistory.length - 2];
 
-                const historyDiv = document.createElement('div');
-                historyDiv.className = 'history-segment';
-                historyDiv.innerHTML = `
-                    <div class="history-choice">${previousChoice}</div>
-                    <div class="story-text">${formatNarrative(prevSegment.text)}</div>
-                `;
-                historyContainer.appendChild(historyDiv);
+                if (prevSegment) {
+                    const historyDiv = document.createElement('div');
+                    historyDiv.className = 'history-segment';
+                    historyDiv.innerHTML = `
+                        <div class="history-choice">${previousChoice}</div>
+                        <div class="story-text">${formatNarrative(prevSegment.text)}</div>
+                    `;
+                    historyContainer.appendChild(historyDiv);
+                }
             }
 
             // Show current
@@ -2865,6 +2903,16 @@ CHOICES THAT TORMENT:
                     ${formatNarrative(narrative)}
                 </div>
             `;
+
+            // If no choices were parsed, provide generic fallback choices
+            if (!choices || choices.length === 0) {
+                choices = [
+                    "Continue forward with determination",
+                    "Take a moment to assess the situation", 
+                    "Look for an alternative approach"
+                ];
+                console.warn('Using fallback choices');
+            }
 
             // Show choices - use data attributes for safer click handling
             let choicesHtml = choices.map((choice, index) => `
@@ -2884,12 +2932,22 @@ CHOICES THAT TORMENT:
 
             document.getElementById('choicesContainer').innerHTML = choicesHtml;
             
-            // Attach click handlers via event delegation
+            // Attach click handlers via event delegation - with safeguards
+            const choicesCopy = [...choices]; // Create a copy to avoid closure issues
             document.querySelectorAll('.choice-btn[data-choice-index]').forEach(btn => {
                 btn.addEventListener('click', function() {
+                    // Prevent double-clicks
+                    if (state.isLoading) return;
+                    if (this.disabled) return;
+                    
+                    // Disable all choice buttons immediately
+                    document.querySelectorAll('.choice-btn').forEach(b => b.disabled = true);
+                    const customSubmit = document.querySelector('.custom-submit');
+                    if (customSubmit) customSubmit.disabled = true;
+                    
                     const index = parseInt(this.getAttribute('data-choice-index'));
-                    if (!isNaN(index) && choices[index]) {
-                        makeChoice(choices[index]);
+                    if (!isNaN(index) && choicesCopy[index]) {
+                        makeChoice(choicesCopy[index]);
                     }
                 });
             });
@@ -2971,8 +3029,9 @@ CHOICES THAT TORMENT:
 
         function renderSavedStories() {
             const container = document.getElementById('savedStoriesList');
+            if (!container) return;
             
-            if (state.savedStories.length === 0) {
+            if (!state.savedStories || state.savedStories.length === 0) {
                 container.innerHTML = `
                     <div class="empty-library">
                         <p>No saved stories yet.</p>
@@ -2982,17 +3041,27 @@ CHOICES THAT TORMENT:
                 return;
             }
 
-            container.innerHTML = state.savedStories.map((story, index) => `
-                <div class="saved-story-card" onclick="viewSavedStory(${index})">
-                    <div class="saved-story-icon">${realmData[story.genre]?.icon || '📖'}</div>
-                    <div class="saved-story-info">
-                        <div class="saved-story-genre">${story.genreName}</div>
-                        <div class="saved-story-date">${story.date}</div>
-                        <div class="saved-story-preview">${story.segments[0]?.text.substring(0, 80)}...</div>
+            container.innerHTML = state.savedStories.map((story, index) => {
+                if (!story) return '';
+                const icon = story.genre && realmData[story.genre] ? realmData[story.genre].icon : '📖';
+                const genreName = story.genreName || 'Unknown';
+                const date = story.date || 'Unknown date';
+                const preview = story.segments && story.segments[0] && story.segments[0].text 
+                    ? story.segments[0].text.substring(0, 80) + '...'
+                    : 'Story preview unavailable';
+                
+                return `
+                    <div class="saved-story-card" onclick="viewSavedStory(${index})">
+                        <div class="saved-story-icon">${icon}</div>
+                        <div class="saved-story-info">
+                            <div class="saved-story-genre">${genreName}</div>
+                            <div class="saved-story-date">${date}</div>
+                            <div class="saved-story-preview">${preview}</div>
+                        </div>
+                        <button class="delete-story-btn" onclick="event.stopPropagation(); deleteSavedStory(${index})">✕</button>
                     </div>
-                    <button class="delete-story-btn" onclick="event.stopPropagation(); deleteSavedStory(${index})">✕</button>
-                </div>
-            `).join('');
+                `;
+            }).join('');
         }
 
         function viewSavedStory(index) {
@@ -3022,11 +3091,12 @@ CHOICES THAT TORMENT:
         }
 
         function formatNarrative(text) {
+            if (!text) return '<p>...</p>';
             return text
                 .split('\n\n')
                 .filter(p => p.trim())
                 .map(p => `<p>${p.trim()}</p>`)
-                .join('');
+                .join('') || '<p>...</p>';
         }
 
         function escapeQuotes(str) {
@@ -3045,8 +3115,14 @@ CHOICES THAT TORMENT:
 
         function submitCustomChoice() {
             const input = document.getElementById('customChoiceInput');
+            if (!input) return;
+            
             const choice = input.value.trim();
             if (choice && !state.isLoading) {
+                // Disable all choice buttons immediately
+                document.querySelectorAll('.choice-btn').forEach(b => b.disabled = true);
+                const customSubmit = document.querySelector('.custom-submit');
+                if (customSubmit) customSubmit.disabled = true;
                 makeChoice(choice);
             }
         }
